@@ -3,6 +3,8 @@ const path = require("path");
 const mongoose = require("mongoose");
 const Campground = require("./models/campground");
 const methodOverride = require("method-override");
+const morgan = require("morgan");
+const ejsMate = require("ejs-mate");
 
 async function connectDataBase() {
   try {
@@ -21,16 +23,19 @@ const db = mongoose.connection;
 db.on("error", (error) => {
   console.log(error);
 });
+
 db.on("open", () => {
   console.log("Database conncted");
 });
 
 const app = express();
 
+app.engine("ejs", ejsMate);
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 
 app.use(methodOverride("_method"));
+app.use(morgan("dev"));
 
 app.use(
   express.urlencoded({
