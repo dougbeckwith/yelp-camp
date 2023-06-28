@@ -10,13 +10,30 @@ async function connectDataBase() {
   try {
     await mongoose.connect("mongodb://127.0.0.1:27017/yelp-camp", {
       useNewUrlParser: true,
-      useUnifiedTopology: true
+      useUnifiedTopology: true,
     });
   } catch (error) {
     console.log(error);
   }
 }
 connectDataBase();
+
+class AppError extends Error {
+  constructor(message, status) {
+    super();
+    this.message = message;
+    this.status = status;
+  }
+}
+
+// Avoid writing try catch every async function
+function wrapAsync(fn) {
+  return function (req, res, next) {
+    fn(req, res, next).catch((error) => {
+      next(error);
+    });
+  };
+}
 
 const db = mongoose.connection;
 
@@ -40,7 +57,7 @@ app.use(morgan("dev"));
 app.use(
   express.urlencoded({
     extended: true,
-    type: "application/x-www-form-urlencoded"
+    type: "application/x-www-form-urlencoded",
   })
 );
 
@@ -48,43 +65,102 @@ app.get("/", (req, res) => {
   res.render("home");
 });
 
-app.get("/campgrounds", async (req, res) => {
-  const campgrounds = await Campground.find({});
-  res.render("campgrounds/index", { campgrounds });
-});
+app.get(
+  "/campgrounds",
+  wrapAsync(async (req, res, next) => {
+    const campgrounds = await Campground.find({});
+    res.render("campgrounds/index", { campgrounds });
+  })
+);
+
+app.post(
+  "/campgrounds",
+  wrapAsync(async (req, res, next) => {
+    const campground = new Campground(req.body.campground);
+    await campground.save();
+    res.redirect(`/campgrounds/${campground._id}`);
+  })
+);
 
 app.get("/campgrounds/new", (req, res) => {
   res.render("campgrounds/new");
 });
 
-app.get("/campgrounds/:id/edit", async (req, res) => {
-  const { id } = req.params;
-  const campground = await Campground.findById(id);
-  res.render("campgrounds/edit", { campground });
+app.get(
+  "/campgrounds/:id",
+  wrapAsync(async (req, res, next) => {
+    const { id } = req.params;
+    const campground = await Campground.findById(id);
+    if (!campground) {
+      throw next(new AppError("Campground Not Found", 401));
+    }
+    res.render("campgrounds/show", { campground });
+  })
+);
+
+app.put(
+  "/campgrounds/:id",
+  wrapAsync(async (req, res, next) => {
+    const { id } = req.params;
+    await Campground.findByIdAndUpdate(id, req.body.campground, {
+      runValidators: true,
+    });
+    res.redirect(`/campgrounds/${id}`);
+  })
+);
+
+app.delete(
+  "/campgrounds/:id",
+  wrapAsync(async (req, res, next) => {
+    const { id } = req.params;
+    await Campground.findByIdAndDelete(id);
+    res.redirect(`/campgrounds`);
+  })
+);
+
+app.get(
+  "/campgrounds/:id/edit",
+  wrapAsync(async (req, res, next) => {
+    const { id } = req.params;
+    const campground = await Campground.findById(id);
+    if (!campground) {
+      throw next(new AppError("Campground Not Found", 401));
+    }
+    res.render("campgrounds/edit", { campground });
+  })
+);
+
+const handleValidationError = (error) => {
+  return new AppError("Validation Failed", 400);
+};
+
+const handleCastError = (error) => {
+  return new AppError("Cast Error", 400);
+};
+
+// First Error Handler
+app.use((err, req, res, next) => {
+  console.log(err);
+  next(err);
 });
 
-app.put("/campgrounds/:id", async (req, res) => {
-  const { id } = req.params;
-  await Campground.findByIdAndUpdate(id, req.body.campground);
-  res.redirect(`/campgrounds/${id}`);
+// Log Error name
+app.use((err, req, res, next) => {
+  console.dir(err);
+  next(err);
 });
 
-app.post("/campgrounds", async (req, res) => {
-  const campground = new Campground(req.body.campground);
-  await campground.save();
-  res.redirect(`/campgrounds/${campground._id}`);
+// Check Error Type
+app.use((err, req, res, next) => {
+  if (err.name === "ValidationError") err = handleValidationError(err);
+  if (err.name === "CastError") err = handleCastError(err);
+  next(err);
 });
 
-app.delete("/campgrounds/:id", async (req, res) => {
-  const { id } = req.params;
-  await Campground.findByIdAndDelete(id);
-  res.redirect(`/campgrounds`);
-});
-
-app.get("/campgrounds/:id", async (req, res) => {
-  const { id } = req.params;
-  const campground = await Campground.findById(id);
-  res.render("campgrounds/show", { campground });
+// Second Error Handler
+app.use((err, req, res, next) => {
+  const { status = 500, message = "Opps Something Went Wrong" } = err;
+  res.status(status).send(message);
 });
 
 app.listen(3000, () => {
