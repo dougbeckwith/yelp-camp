@@ -5,6 +5,8 @@ const Campground = require("./models/campground");
 const methodOverride = require("method-override");
 const morgan = require("morgan");
 const ejsMate = require("ejs-mate");
+const AppError = require("./utils/ExpressError");
+const catchAsync = require("./utils/catchAsync");
 
 async function connectDataBase() {
   try {
@@ -17,23 +19,6 @@ async function connectDataBase() {
   }
 }
 connectDataBase();
-
-class AppError extends Error {
-  constructor(message, status) {
-    super();
-    this.message = message;
-    this.status = status;
-  }
-}
-
-// Avoid writing try catch every async function
-function wrapAsync(fn) {
-  return function (req, res, next) {
-    fn(req, res, next).catch((error) => {
-      next(error);
-    });
-  };
-}
 
 const db = mongoose.connection;
 
@@ -60,6 +45,7 @@ app.use(
     type: "application/x-www-form-urlencoded",
   })
 );
+app.use(express.json());
 
 app.get("/", (req, res) => {
   res.render("home");
@@ -67,7 +53,7 @@ app.get("/", (req, res) => {
 
 app.get(
   "/campgrounds",
-  wrapAsync(async (req, res, next) => {
+  catchAsync(async (req, res, next) => {
     const campgrounds = await Campground.find({});
     res.render("campgrounds/index", { campgrounds });
   })
@@ -75,7 +61,8 @@ app.get(
 
 app.post(
   "/campgrounds",
-  wrapAsync(async (req, res, next) => {
+  catchAsync(async (req, res, next) => {
+    if (!req.body.campground) throw next(new AppError("Invalid Campground Data", 400));
     const campground = new Campground(req.body.campground);
     await campground.save();
     res.redirect(`/campgrounds/${campground._id}`);
@@ -88,20 +75,26 @@ app.get("/campgrounds/new", (req, res) => {
 
 app.get(
   "/campgrounds/:id",
-  wrapAsync(async (req, res, next) => {
+  catchAsync(async (req, res, next) => {
     const { id } = req.params;
     const campground = await Campground.findById(id);
+
     if (!campground) {
       throw next(new AppError("Campground Not Found", 401));
     }
+
     res.render("campgrounds/show", { campground });
   })
 );
 
 app.put(
   "/campgrounds/:id",
-  wrapAsync(async (req, res, next) => {
+  catchAsync(async (req, res, next) => {
     const { id } = req.params;
+
+    if (!req.body.campground) throw next(new AppError("Invalid Campground Data", 400));
+
+    console.log(req.body.campground);
     await Campground.findByIdAndUpdate(id, req.body.campground, {
       runValidators: true,
     });
@@ -111,7 +104,7 @@ app.put(
 
 app.delete(
   "/campgrounds/:id",
-  wrapAsync(async (req, res, next) => {
+  catchAsync(async (req, res, next) => {
     const { id } = req.params;
     await Campground.findByIdAndDelete(id);
     res.redirect(`/campgrounds`);
@@ -120,47 +113,45 @@ app.delete(
 
 app.get(
   "/campgrounds/:id/edit",
-  wrapAsync(async (req, res, next) => {
+  catchAsync(async (req, res, next) => {
     const { id } = req.params;
     const campground = await Campground.findById(id);
+
     if (!campground) {
       throw next(new AppError("Campground Not Found", 401));
     }
+
     res.render("campgrounds/edit", { campground });
   })
 );
 
-const handleValidationError = (error) => {
+const handleValidationError = () => {
   return new AppError("Validation Failed", 400);
 };
 
-const handleCastError = (error) => {
+const handleCastError = () => {
   return new AppError("Cast Error", 400);
 };
 
-// First Error Handler
-app.use((err, req, res, next) => {
-  console.log(err);
-  next(err);
+app.all("*", (req, res, next) => {
+  next(new AppError("Page Not Found", 404));
 });
 
-// Log Error name
 app.use((err, req, res, next) => {
   console.dir(err);
   next(err);
 });
 
-// Check Error Type
 app.use((err, req, res, next) => {
-  if (err.name === "ValidationError") err = handleValidationError(err);
-  if (err.name === "CastError") err = handleCastError(err);
+  if (err.name === "ValidationError") err = handleValidationError();
+  if (err.name === "CastError") err = handleCastError();
   next(err);
 });
 
-// Second Error Handler
 app.use((err, req, res, next) => {
-  const { status = 500, message = "Opps Something Went Wrong" } = err;
-  res.status(status).send(message);
+  const { status = 500 } = err;
+  if (!err.message) err.message = "Oh No, Something Went Wrong!";
+  res.status(status).render("error", { err });
 });
 
 app.listen(3000, () => {
