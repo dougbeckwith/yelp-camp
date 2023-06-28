@@ -7,6 +7,7 @@ const morgan = require("morgan");
 const ejsMate = require("ejs-mate");
 const AppError = require("./utils/ExpressError");
 const catchAsync = require("./utils/catchAsync");
+const { campgroundSchema } = require("./schemas");
 
 async function connectDataBase() {
   try {
@@ -47,6 +48,17 @@ app.use(
 );
 app.use(express.json());
 
+const validateCampground = (req, res, next) => {
+  const { error } = campgroundSchema.validate(req.body);
+
+  if (error) {
+    const msg = error.details.map((err) => err.message);
+    throw new AppError(msg, 400);
+  } else {
+    next();
+  }
+};
+
 app.get("/", (req, res) => {
   res.render("home");
 });
@@ -61,8 +73,8 @@ app.get(
 
 app.post(
   "/campgrounds",
+  validateCampground,
   catchAsync(async (req, res, next) => {
-    if (!req.body.campground) throw next(new AppError("Invalid Campground Data", 400));
     const campground = new Campground(req.body.campground);
     await campground.save();
     res.redirect(`/campgrounds/${campground._id}`);
@@ -89,12 +101,10 @@ app.get(
 
 app.put(
   "/campgrounds/:id",
+  validateCampground,
   catchAsync(async (req, res, next) => {
     const { id } = req.params;
 
-    if (!req.body.campground) throw next(new AppError("Invalid Campground Data", 400));
-
-    console.log(req.body.campground);
     await Campground.findByIdAndUpdate(id, req.body.campground, {
       runValidators: true,
     });
