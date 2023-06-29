@@ -1,19 +1,20 @@
 const express = require("express");
 const path = require("path");
 const mongoose = require("mongoose");
-const Campground = require("./models/campground");
 const methodOverride = require("method-override");
 const morgan = require("morgan");
 const ejsMate = require("ejs-mate");
 const AppError = require("./utils/ExpressError");
 const catchAsync = require("./utils/catchAsync");
-const { campgroundSchema } = require("./schemas");
+const { campgroundSchema, reviewSchema } = require("./schemas");
+const Campground = require("./models/campground");
+const Review = require("./models/review");
 
 async function connectDataBase() {
   try {
     await mongoose.connect("mongodb://127.0.0.1:27017/yelp-camp", {
       useNewUrlParser: true,
-      useUnifiedTopology: true,
+      useUnifiedTopology: true
     });
   } catch (error) {
     console.log(error);
@@ -43,13 +44,24 @@ app.use(morgan("dev"));
 app.use(
   express.urlencoded({
     extended: true,
-    type: "application/x-www-form-urlencoded",
+    type: "application/x-www-form-urlencoded"
   })
 );
 app.use(express.json());
 
 const validateCampground = (req, res, next) => {
   const { error } = campgroundSchema.validate(req.body);
+
+  if (error) {
+    const msg = error.details.map((err) => err.message);
+    throw new AppError(msg, 400);
+  } else {
+    next();
+  }
+};
+
+const validateReview = (req, res, next) => {
+  const { error } = reviewSchema.validate(req.body);
 
   if (error) {
     const msg = error.details.map((err) => err.message);
@@ -89,8 +101,7 @@ app.get(
   "/campgrounds/:id",
   catchAsync(async (req, res, next) => {
     const { id } = req.params;
-    const campground = await Campground.findById(id);
-
+    const campground = await Campground.findById(id).populate("reviews");
     if (!campground) {
       throw next(new AppError("Campground Not Found", 401));
     }
@@ -106,7 +117,7 @@ app.put(
     const { id } = req.params;
 
     await Campground.findByIdAndUpdate(id, req.body.campground, {
-      runValidators: true,
+      runValidators: true
     });
     res.redirect(`/campgrounds/${id}`);
   })
@@ -135,6 +146,34 @@ app.get(
   })
 );
 
+app.post(
+  "/campgrounds/:id/reviews",
+  validateReview,
+  catchAsync(async (req, res, next) => {
+    const campground = await Campground.findById(req.params.id);
+    const review = new Review(req.body.review);
+    campground.reviews.push(review);
+    await review.save();
+    await campground.save();
+    res.redirect(`/campgrounds/${campground._id}`);
+  })
+);
+
+app.delete(
+  "/campgrounds/:id/reviews/:reviewId",
+  catchAsync(async (req, res, next) => {
+    await Review.findByIdAndDelete(req.params.reviewId);
+    const campground = await Campground.findById(req.params.id).populate("reviews");
+    const reviews = campground.reviews.filter((review) => {
+      return review._id !== req.params.reviewId;
+    });
+
+    campground.reviews = reviews;
+    await campground.save();
+    res.redirect(`/campgrounds/${campground._id}`);
+  })
+);
+
 const handleValidationError = () => {
   return new AppError("Validation Failed", 400);
 };
@@ -143,7 +182,7 @@ const handleCastError = () => {
   return new AppError("Cast Error", 400);
 };
 
-app.all("*", (req, res, next) => {
+app.use("*", (req, res, next) => {
   next(new AppError("Page Not Found", 404));
 });
 
