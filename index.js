@@ -7,9 +7,13 @@ const ejsMate = require("ejs-mate");
 const AppError = require("./utils/ExpressError");
 const session = require("express-session");
 const flash = require("connect-flash");
+const passport = require("passport");
+const LocalStrategy = require("passport-local");
+const User = require("./models/user");
 
-const campgrounds = require("./routes/campgrounds");
-const reviews = require("./routes/reviews");
+const userRoutes = require("./routes/users");
+const campgroundRoutes = require("./routes/campgrounds");
+const reviewRoutes = require("./routes/reviews");
 
 async function connectDataBase() {
   try {
@@ -43,6 +47,14 @@ app.use(methodOverride("_method"));
 app.use(morgan("dev"));
 app.use(express.static(path.join(__dirname, "public")));
 
+app.use(
+  express.urlencoded({
+    extended: true,
+    type: "application/x-www-form-urlencoded"
+  })
+);
+app.use(express.json());
+
 const sessionConfig = {
   secret: "thisshouldbeabettersecret!",
   resave: false,
@@ -57,13 +69,12 @@ const sessionConfig = {
 app.use(session(sessionConfig));
 app.use(flash());
 
-app.use(
-  express.urlencoded({
-    extended: true,
-    type: "application/x-www-form-urlencoded"
-  })
-);
-app.use(express.json());
+app.use(passport.initialize());
+app.use(passport.session());
+
+passport.use(new LocalStrategy(User.authenticate()));
+passport.serializeUser(User.serializeUser());
+passport.deserializeUser(User.deserializeUser());
 
 app.use((req, res, next) => {
   res.locals.success = req.flash("success");
@@ -71,8 +82,18 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use("/campgrounds", campgrounds);
-app.use("/campgrounds/:id/reviews", reviews);
+app.get("/fakeUser", async (req, res) => {
+  const user = new User({
+    email: "doug@gmail.com",
+    username: "doug"
+  });
+  const newUser = await User.register(user, "password");
+  res.send(newUser);
+});
+
+app.use("/", userRoutes);
+app.use("/campgrounds", campgroundRoutes);
+app.use("/campgrounds/:id/reviews", reviewRoutes);
 
 app.get("/", (req, res) => {
   res.render("home");
