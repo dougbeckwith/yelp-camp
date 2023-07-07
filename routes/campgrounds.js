@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const isLoggedIn = require("../middelware");
+const { isLoggedIn } = require("../middelware");
 
 const AppError = require("../utils/ExpressError");
 const catchAsync = require("../utils/catchAsync");

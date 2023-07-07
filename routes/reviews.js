@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router({ mergeParams: true });
-const isLoggedIn = require("../middelware");
+const { isLoggedIn } = require("../middelware");
 
 const catchAsync = require("../utils/catchAsync");
 const AppError = require("../utils/ExpressError");
