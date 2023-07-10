@@ -20,6 +20,7 @@ const storeReturnTo = (req, res, next) => {
 };
 
 const validateCampground = (req, res, next) => {
+  console.log(req.body);
   const { error } = campgroundSchema.validate(req.body);
 
   if (error) {
